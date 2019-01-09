@@ -12,8 +12,8 @@ class ConcurrentStressTest {
     }
 
     @Test
-    fun `test on very graphs`() {
-        testOnRandomGraphs(6, 25)
+    fun `test on very small graphs`() {
+        testOnRandomGraphs(6, 13)
     }
 
     @Test
@@ -23,7 +23,7 @@ class ConcurrentStressTest {
 
     @Test
     fun `test on big graphs`() {
-        testOnRandomGraphs(10000, 100000)
+        testOnRandomGraphs(1000, 10000)
     }
 
     private fun testOnRandomGraphs(nodes: Int, edges: Int) {
