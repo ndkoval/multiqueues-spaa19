@@ -1,6 +1,6 @@
 package dijkstra
 
-import com.sun.org.apache.xpath.internal.operations.Bool
+import org.nield.kotlinstatistics.standardDeviation
 import java.util.*
 import java.util.concurrent.Phaser
 import java.util.concurrent.ThreadLocalRandom
@@ -17,7 +17,7 @@ private const val WARMUP_ITERATIONS = 1
 private const val ITERATIONS = 10
 private const val NODES = 100000
 private const val EDGES = NODES * 10
-private val THREADS = arrayOf(1, 2, 4, 8)
+private val THREADS = arrayOf(1, 2, 4, 8, 16, 32, 64, 128, 144)
 
 fun main() {
     val graphNodes = randomConnectedGraph(NODES, EDGES)
@@ -26,23 +26,29 @@ fun main() {
     val validResult = from.shortestPathSequential(to)
 
     for (t in THREADS) {
-//        println("PARALLEL, THREADS=$t (WARM-UP)")
+        // Warm-Up
         repeat(WARMUP_ITERATIONS) {
-            runAndPrintLog(graphNodes, false) {
-                check(validResult == from.shortestPathParallel(to, parallelism = t))
-            }
+            run(graphNodes, null) { check(validResult == from.shortestPathParallel(to, parallelism = t)) }
         }
-        println("PARALLEL, THREADS=$t")
+        // Run the optimized code!
+        val results = mutableListOf<Result>()
         repeat(ITERATIONS) {
-            runAndPrintLog(graphNodes) {
-                check(validResult == from.shortestPathParallel(to, parallelism = t))
-            }
+            run(graphNodes, results) { check(validResult == from.shortestPathParallel(to, parallelism = t)) }
         }
+        println("THREADS=$t, " +
+                "time_avg=${results.map { it.time.toDouble() / 1_000_000 }.average().format(0)}ms, " +
+                "overhead_avg=${results.map { it.overhead }.average().format(4)}, " +
+                "overhead_std=${results.map { it.overhead }.standardDeviation().format(4)}"
+        )
     }
 }
 
+fun Double.format(digits: Int) = java.lang.String.format("%.${digits}f", this)
+
+data class Result(val time: Long, val overhead: Double)
+
 // Returns the total time in nanoseconds
-fun runAndPrintLog(graph: List<Node>, print: Boolean = true, block: () -> Unit) {
+fun run(graph: List<Node>, results: MutableList<Result>?, block: () -> Unit) {
     val startTime = System.nanoTime()
     block()
     val totalTime = System.nanoTime() - startTime
@@ -52,11 +58,10 @@ fun runAndPrintLog(graph: List<Node>, print: Boolean = true, block: () -> Unit) 
         node.lastDistance = Long.MAX_VALUE
         node.changes = 0
     }
-    if (print)
-        println("Time = $totalTime ns, overhead = ${processedNodes.toDouble() / graph.size}")
+    if (results != null) results += Result(totalTime, processedNodes.toDouble() / graph.size)
 }
 
-// SEQUENTIAL AND PARALLEL VERSIONS
+// SEQUENTIAL VERSION
 
 val NODE_DISTANCE_COMPARATOR = Comparator<Node> { o1, o2 -> o1!!.distance.compareTo(o2!!.distance) }
 
@@ -79,6 +84,8 @@ fun Node.shortestPathSequential(destination: Node): Long {
     }
     return destination.distance
 }
+
+// PARALLEL VERSION
 
 // Returns `Integer.MAX_VALUE` is a path has not been found
 fun Node.shortestPathParallel(destination: Node, parallelism: Int = 0): Long {
@@ -131,7 +138,7 @@ fun Node.shortestPathParallel(destination: Node, parallelism: Int = 0): Long {
 }
 
 private class MultiPriorityQueue(parallelism: Int) {
-    private val heaps = Array<PriorityQueue<Data>>(parallelism * 2) { PriorityQueue() }
+    private val heaps = Array<PriorityQueue<NodeWithDistance>>(parallelism * 2) { PriorityQueue() }
     private val totalHeaps get() = heaps.size
 
     @Volatile
@@ -158,7 +165,7 @@ private class MultiPriorityQueue(parallelism: Int) {
         }
     }
 
-    private fun pollInternal(heap: PriorityQueue<Data>): Node? {
+    private fun pollInternal(heap: PriorityQueue<NodeWithDistance>): Node? {
         val res = heap.poll()
         if (heap.isEmpty()) decNonEmptyHeaps()
         return res.node
@@ -170,7 +177,7 @@ private class MultiPriorityQueue(parallelism: Int) {
         val h = heaps[i]
         synchronized(h) {
             val wasEmpty = h.isEmpty()
-            h.add(Data(element))
+            h.add(NodeWithDistance(element))
             if (wasEmpty) incNonEmptyHeaps()
         }
     }
@@ -182,9 +189,9 @@ private class MultiPriorityQueue(parallelism: Int) {
         val NON_EMPTY_HEAPS_UPDATER = AtomicIntegerFieldUpdater.newUpdater(MultiPriorityQueue::class.java, "nonEmptyHeaps")
     }
 
-    private class Data(val node: Node) : Comparable<Data> {
+    private class NodeWithDistance(val node: Node) : Comparable<NodeWithDistance> {
         val distance = node.distance
-        override fun compareTo(other: Data): Int {
+        override fun compareTo(other: NodeWithDistance): Int {
             if (this.distance < other.distance) return -1
             if (this.distance == other.distance) return 0
             return 1
