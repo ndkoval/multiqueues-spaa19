@@ -1,5 +1,6 @@
 package dijkstra
 
+import com.sun.org.apache.xpath.internal.operations.Bool
 import java.util.*
 import java.util.concurrent.Phaser
 import java.util.concurrent.ThreadLocalRandom
@@ -10,7 +11,9 @@ import kotlin.concurrent.thread
 
 // RUNNER
 
-private const val WARMUP_ITERATIONS = 5
+// Graphs: http://iss.ices.utexas.edu/projects/galois/downloads/lonestar-cpu-inputs.tar.xz
+
+private const val WARMUP_ITERATIONS = 1
 private const val ITERATIONS = 10
 private const val NODES = 100000
 private const val EDGES = NODES * 10
@@ -22,29 +25,16 @@ fun main() {
     val to = graphNodes.last()
     val validResult = from.shortestPathSequential(to)
 
-    println("SEQUENTIAL (WARM-UP)")
-    repeat(WARMUP_ITERATIONS) {
-        runAndPrintTime {
-            check(validResult == from.shortestPathSequential(to))
-        }
-    }
-    println("SEQUENTIAL")
-    repeat(ITERATIONS) {
-        runAndPrintTime {
-            check(validResult == from.shortestPathSequential(to))
-        }
-    }
-
     for (t in THREADS) {
-        println("PARALLEL, THREADS=$t (WARM-UP)")
+//        println("PARALLEL, THREADS=$t (WARM-UP)")
         repeat(WARMUP_ITERATIONS) {
-            runAndPrintTime {
+            runAndPrintLog(graphNodes, false) {
                 check(validResult == from.shortestPathParallel(to, parallelism = t))
             }
         }
         println("PARALLEL, THREADS=$t")
         repeat(ITERATIONS) {
-            runAndPrintTime {
+            runAndPrintLog(graphNodes) {
                 check(validResult == from.shortestPathParallel(to, parallelism = t))
             }
         }
@@ -52,11 +42,18 @@ fun main() {
 }
 
 // Returns the total time in nanoseconds
-fun runAndPrintTime(block: () -> Unit) {
+fun runAndPrintLog(graph: List<Node>, print: Boolean = true, block: () -> Unit) {
     val startTime = System.nanoTime()
     block()
     val totalTime = System.nanoTime() - startTime
-    println("$totalTime ns")
+    val processedNodes = graph.fold(0) { cur, node -> cur + node.changes }
+    graph.forEach { node ->
+        node.distance = Long.MAX_VALUE
+        node.lastDistance = Long.MAX_VALUE
+        node.changes = 0
+    }
+    if (print)
+        println("Time = $totalTime ns, overhead = ${processedNodes.toDouble() / graph.size}")
 }
 
 // SEQUENTIAL AND PARALLEL VERSIONS
@@ -70,6 +67,9 @@ fun Node.shortestPathSequential(destination: Node): Long {
     q.add(this)
     while (q.isNotEmpty()) {
         val cur = q.poll()
+        if (cur.distance >= cur.lastDistance) continue
+        cur.lastDistance = cur.distance
+        cur.changes++
         for (e in cur.outgoingEdges) {
             if (e.to.distance > cur.distance + e.weight) {
                 e.to.distance = cur.distance + e.weight
@@ -86,7 +86,7 @@ fun Node.shortestPathParallel(destination: Node, parallelism: Int = 0): Long {
     // The distance to the start node is `0`
     this.distance = 0
     // Create a priority (by distance) queue and add the start node into it
-    val q = MultiPriorityQueue(workers, NODE_DISTANCE_COMPARATOR)
+    val q = MultiPriorityQueue(workers)
     q.add(this)
     // Run worker threads and wait until the total work is done
     val onFinish = Phaser(workers + 1) // `arrive()` should be invoked at the end by each worker
@@ -108,6 +108,8 @@ fun Node.shortestPathParallel(destination: Node, parallelism: Int = 0): Long {
                 if (incWaiters) waiters.getAndDecrement()
                 // Relax the edges
                 val nodeDistance = node!!.distance
+                if (!node.updateLastDistance(nodeDistance)) continue
+                node.incChanges()
                 for (e in node.outgoingEdges) {
                     val newDistance = nodeDistance + e.weight
                     update_distance@ while (true) {
@@ -128,15 +130,15 @@ fun Node.shortestPathParallel(destination: Node, parallelism: Int = 0): Long {
     return destination.distance
 }
 
-private class MultiPriorityQueue<T>(parallelism: Int, private val comparator: Comparator<T>) {
-    private val heaps = Array<PriorityQueue<T>>(parallelism * 2) { PriorityQueue() }
+private class MultiPriorityQueue(parallelism: Int) {
+    private val heaps = Array<PriorityQueue<Data>>(parallelism * 2) { PriorityQueue() }
     private val totalHeaps get() = heaps.size
 
     @Volatile
     private var nonEmptyHeaps: Int = 0
 
     // Returns null if the queue is empty
-    fun poll(): T? {
+    fun poll(): Node? {
         while (true) {
             if (nonEmptyHeaps == 0) return null
             val i1 = ThreadLocalRandom.current().nextInt(totalHeaps - 1)
@@ -150,25 +152,25 @@ private class MultiPriorityQueue<T>(parallelism: Int, private val comparator: Co
                     // Choose the smallest one
                     val e1 = h1.peek()
                     val e2 = h2.peek()
-                    return if (comparator.compare(e1, e2) < 0) pollInternal(h1) else pollInternal(h2)
+                    return if (e1.distance < e2.distance) pollInternal(h1) else pollInternal(h2)
                 }
             }}
         }
     }
 
-    private fun pollInternal(heap: PriorityQueue<T>): T? {
+    private fun pollInternal(heap: PriorityQueue<Data>): Node? {
         val res = heap.poll()
         if (heap.isEmpty()) decNonEmptyHeaps()
-        return res
+        return res.node
     }
 
     // Adds the specified element to this queue
-    fun add(element: T) {
+    fun add(element: Node) {
         val i = ThreadLocalRandom.current().nextInt(totalHeaps)
         val h = heaps[i]
         synchronized(h) {
             val wasEmpty = h.isEmpty()
-            h.add(element)
+            h.add(Data(element))
             if (wasEmpty) incNonEmptyHeaps()
         }
     }
@@ -178,5 +180,14 @@ private class MultiPriorityQueue<T>(parallelism: Int, private val comparator: Co
 
     private companion object {
         val NON_EMPTY_HEAPS_UPDATER = AtomicIntegerFieldUpdater.newUpdater(MultiPriorityQueue::class.java, "nonEmptyHeaps")
+    }
+
+    private class Data(val node: Node) : Comparable<Data> {
+        val distance = node.distance
+        override fun compareTo(other: Data): Int {
+            if (this.distance < other.distance) return -1
+            if (this.distance == other.distance) return 0
+            return 1
+        }
     }
 }

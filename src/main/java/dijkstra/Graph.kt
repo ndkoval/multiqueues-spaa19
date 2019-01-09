@@ -9,10 +9,20 @@ class Node {
     private val _outgoingEdges = arrayListOf<Edge>()
     val outgoingEdges: List<Edge> = _outgoingEdges
 
-    @Volatile
-    var distance = Long.MAX_VALUE // USE ME FOR THE DIJKSTRA ALGORITHM!
-    fun casDistance(from: Long, to: Long): Boolean = DISTANCE_UPDATER.compareAndSet(this, from, to)
+    @Volatile var distance = Long.MAX_VALUE // USE ME FOR THE DIJKSTRA ALGORITHM!
+    fun casDistance(from: Long, to: Long) = DISTANCE_UPDATER.compareAndSet(this, from, to)
 
+    @Volatile var changes = 0
+    fun incChanges() = CHANGES_UPDATER.getAndAdd(this, 1)
+
+    @Volatile var lastDistance = Long.MAX_VALUE
+    fun updateLastDistance(new: Long): Boolean {
+        while(true) {
+            val cur = lastDistance
+            if (cur <= new) return false
+            if (LAST_DISTANCE_UPDATER.compareAndSet(this, cur, new)) return true
+        }
+    }
 
     fun addEdge(edge: Edge) {
         _outgoingEdges.add(edge)
@@ -20,6 +30,8 @@ class Node {
 
     private companion object {
         val DISTANCE_UPDATER = AtomicLongFieldUpdater.newUpdater(Node::class.java, "distance")
+        val LAST_DISTANCE_UPDATER = AtomicLongFieldUpdater.newUpdater(Node::class.java, "lastDistance")
+        val CHANGES_UPDATER = AtomicIntegerFieldUpdater.newUpdater(Node::class.java, "changes")
     }
 }
 
