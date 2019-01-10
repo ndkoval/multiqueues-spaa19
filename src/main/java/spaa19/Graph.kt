@@ -1,11 +1,29 @@
-package dijkstra
+package spaa19
 
 import java.util.*
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater
 import java.util.concurrent.atomic.AtomicLongFieldUpdater
 import kotlin.collections.ArrayList
 
-class Node {
+class Node: PQElement<Node> {
+    @Volatile
+    override var queue: PriorityQueue<Node>? = null
+    override var position: Int = -1
+
+    override fun compareTo(other: Node): Int {
+        while (true) {
+            val curDistance = this.distance
+            val otherDistance = other.distance
+            if (curDistance == this.distance) {
+                return when {
+                    curDistance < otherDistance -> -1
+                    curDistance == otherDistance -> 0
+                    else -> 1
+                }
+            }
+        }
+    }
+
     private val _outgoingEdges = arrayListOf<Edge>()
     val outgoingEdges: List<Edge> = _outgoingEdges
 
@@ -15,22 +33,12 @@ class Node {
     @Volatile var changes = 0
     fun incChanges() = CHANGES_UPDATER.getAndAdd(this, 1)
 
-    @Volatile var lastDistance = Long.MAX_VALUE
-    fun updateLastDistance(new: Long): Boolean {
-        while(true) {
-            val cur = lastDistance
-            if (cur <= new) return false
-            if (LAST_DISTANCE_UPDATER.compareAndSet(this, cur, new)) return true
-        }
-    }
-
     fun addEdge(edge: Edge) {
         _outgoingEdges.add(edge)
     }
 
     private companion object {
         val DISTANCE_UPDATER = AtomicLongFieldUpdater.newUpdater(Node::class.java, "distance")
-        val LAST_DISTANCE_UPDATER = AtomicLongFieldUpdater.newUpdater(Node::class.java, "lastDistance")
         val CHANGES_UPDATER = AtomicIntegerFieldUpdater.newUpdater(Node::class.java, "changes")
     }
 }
