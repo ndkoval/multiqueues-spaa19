@@ -9,14 +9,13 @@ import kotlin.concurrent.thread
 fun Node.bfsSequential(destination: Node): Long {
     this.distance = 0
     val q = Queue<Node>()
-    q.add(this)
+    q.add(this, -1)
     while (!q.empty) {
         val cur = q.poll()
-        cur.changes++
         for (e in cur.outgoingEdges) {
-            if (e.to.distance > cur.distance + 1) {
+            if (e.to.distance == Long.MAX_VALUE) {
                 e.to.distance = cur.distance + 1
-                q.add(e.to)
+                q.add(e.to, -1)
             }
         }
     }
@@ -29,7 +28,7 @@ fun Node.bfsParallel(destination: Node, parallelism: Int = 0): Long {
     this.distance = 0
     // Create a priority (by distance) queue and add the start node into it
     val q = MultiQueue<Node>(workers)
-    q.add(this)
+    q.add(this, 0)
     // Run worker threads and wait until the total work is done
     val onFinish = Phaser(workers + 1) // `arrive()` should be invoked at the end by each worker
     val waiters = AtomicInteger(0)
@@ -58,7 +57,7 @@ fun Node.bfsParallel(destination: Node, parallelism: Int = 0): Long {
                         val toDistance = e.to.distance
                         if (toDistance <= newDistance) break@update_distance
                         if (e.to.casDistance(toDistance, newDistance)) {
-                            q.add(e.to)
+                            q.add(e.to, newDistance)
                             break@update_distance
                         }
                     }
@@ -78,19 +77,10 @@ class MultiQueue<T: PQElement<T>>(parallelism: Int) {
 
     // Returns null if the queue is empty
     fun poll(): T? {
-        var x = 0
         while (true) {
             if (nonEmptyHeaps == 0) return null
-            var i1: Int
-            var i2: Int
-            while (true) {
-                i1 = ThreadLocalRandom.current().nextInt(totalQueues)
-                i2 = ThreadLocalRandom.current().nextInt(totalQueues)
-                if (i1 != i2) {
-                    if (i1 > i2) { val t = i1; i1 = i2; i2 = i1 }
-                    break
-                }
-            }
+            val i1 = ThreadLocalRandom.current().nextInt(totalQueues - 1)
+            val i2 = ThreadLocalRandom.current().nextInt(i1 + 1, totalQueues)
             val h1 = queues[i1]
             val h2 = queues[i2]
             synchronized(h1) { synchronized(h2) {
@@ -103,7 +93,6 @@ class MultiQueue<T: PQElement<T>>(parallelism: Int) {
                     return if (t1 < t2) pollInternal(h1) else pollInternal(h2)
                 }
             }}
-            x++; if ((x + 1) % 100000001 == 0) System.err.println(":(   $x $nonEmptyHeaps ${queues.size}")
         }
     }
 
@@ -113,12 +102,11 @@ class MultiQueue<T: PQElement<T>>(parallelism: Int) {
         return x
     }
 
-    // Adds the specified element to this queue
-    fun add(x: T) {
+    fun add(x: T, time: Long) {
         val q = queues[ThreadLocalRandom.current().nextInt(totalQueues)]
         synchronized(q) {
             val wasEmpty = q.empty
-            q.add(x)
+            q.add(x, time)
             if (wasEmpty) incNonEmptyHeaps()
         }
     }
@@ -135,16 +123,16 @@ class MultiQueue<T: PQElement<T>>(parallelism: Int) {
 }
 
 private class Queue<T> {
-    private var data = arrayOfNulls<Any>(16)
-    private var times = LongArray(16)
+    private var data = arrayOfNulls<Any>(100000000)
+    private var times = LongArray(100000000)
     private var head = 0
     private var tail = 0
 
     val empty get() = head == tail
 
-    fun add(x: T) {
+    fun add(x: T, time: Long) {
         data[tail] = x
-        times[tail] = System.nanoTime()
+        times[tail] = time
         tail++
         if (tail == data.size) tail = 0
         if (tail == head) grow()

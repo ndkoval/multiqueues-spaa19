@@ -11,16 +11,8 @@ class MultiPriorityQueue<T: PQElement<T>>(parallelism: Int) {
     fun poll(): T? {
         while (true) {
             if (nonEmptyHeaps == 0) return null
-            var i1: Int
-            var i2: Int
-            while (true) {
-                i1 = ThreadLocalRandom.current().nextInt(totalHeaps)
-                i2 = ThreadLocalRandom.current().nextInt(totalHeaps)
-                if (i1 != i2) {
-                    if (i1 > i2) { val t = i1; i1 = i2; i2 = i1 }
-                    break
-                }
-            }
+            val i1 = ThreadLocalRandom.current().nextInt(totalHeaps - 1)
+            val i2 = ThreadLocalRandom.current().nextInt(i1 + 1, totalHeaps)
             val h1 = heaps[i1]
             val h2 = heaps[i2]
             synchronized(h1) { synchronized(h2) {

@@ -66,7 +66,9 @@ fun randomConnectedGraph(nodes: Int, edges: Int, maxWeight: Int = 100): List<Nod
     while (s.isNotEmpty()) {
         val neighbor = s.removeAt(r.nextInt(s.size))
         if (visited.add(neighbor)) {
-            cur.addEdge(Edge(neighbor, r.nextInt(maxWeight)))
+            val weight = r.nextInt(maxWeight)
+            cur.addEdge(Edge(neighbor, weight))
+            neighbor.addEdge(Edge(cur, weight))
         }
         cur = neighbor
     }
