@@ -33,12 +33,26 @@ class ConcurrentStressTest {
             repeat(SEARCHES) {
                 val from = nodesList[r.nextInt(nodes)]
                 val to = nodesList[r.nextInt(nodes)]
-                assertEquals(from.shortestPathSequential(to), from.shortestPathParallel(to))
+                assertEquals(from.dijkstraSequential(to), from.dijkstraParallel(to))
+                nodesList.forEach { node ->
+                    node.distance = Long.MAX_VALUE
+                    node.changes = 0
+                }
+            }
+            repeat(SEARCHES) {
+                val from = nodesList[r.nextInt(nodes)]
+                val to = nodesList[r.nextInt(nodes)]
+                assertEquals(from.bfsSequential(to), from.bfsParallel(to))
+                nodesList.forEach { node ->
+                    node.distance = Long.MAX_VALUE
+                    node.lastDistance = Long.MAX_VALUE
+                    node.changes = 0
+                }
             }
         }
     }
 
 }
 
-private const val GRAPHS = 100
+private const val GRAPHS = 10
 private const val SEARCHES = 100

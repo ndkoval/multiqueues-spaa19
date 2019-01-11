@@ -37,8 +37,18 @@ class Node: PQElement<Node> {
         _outgoingEdges.add(edge)
     }
 
+    @Volatile var lastDistance = Long.MAX_VALUE
+    fun updateLastDistance(new: Long): Boolean {
+        while(true) {
+            val cur = lastDistance
+            if (cur <= new) return false
+            if (LAST_DISTANCE_UPDATER.compareAndSet(this, cur, new)) return true
+        }
+    }
+
     private companion object {
         val DISTANCE_UPDATER = AtomicLongFieldUpdater.newUpdater(Node::class.java, "distance")
+        val LAST_DISTANCE_UPDATER = AtomicLongFieldUpdater.newUpdater(Node::class.java, "lastDistance")
         val CHANGES_UPDATER = AtomicIntegerFieldUpdater.newUpdater(Node::class.java, "changes")
     }
 }

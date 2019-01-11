@@ -141,6 +141,11 @@
                         <phase>package</phase>
                         <goals> <goal>single</goal> </goals>
                         <configuration>
+                            <archive>
+                                <manifest>
+                                    <mainClass>spaa19.RunnerKt</mainClass>
+                                </manifest>
+                            </archive>
                             <descriptorRefs>
                                 <descriptorRef>jar-with-dependencies</descriptorRef>
                             </descriptorRefs>
