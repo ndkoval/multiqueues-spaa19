@@ -11,10 +11,13 @@ import java.nio.file.Paths
 import java.util.*
 import java.util.zip.GZIPInputStream
 import kotlin.collections.ArrayList
+import kotlin.math.max
 
-private const val WARMUP_ITERATIONS = 3
-private const val ITERATIONS = 10
-private val THREADS = arrayOf(1, 2, 4, 8, 16, 32, 64, 96, 128, 144)
+private const val WARMUP_ITERATIONS = 0
+private const val ITERATIONS = 1
+private val THREADS = arrayOf(1)
+//private val THREADS = arrayOf(16, 32, 64, 128)
+//private val THREADS = arrayOf(1, 2, 4, 8, 12)
 private val GRAPH_FILES = listOf(
         Triple("RAND-1M-10M", "rand", "1000000 10000000"), // 1M nodes and 10M edges
 //        Triple("CTR-DISTANCE", "gr gz", "http://www.dis.uniroma1.it/challenge9/data/USA-road-d/USA-road-d.CTR.gr.gz"),
@@ -25,7 +28,7 @@ private val GRAPH_FILES = listOf(
 )
 
 private val SSSP_ALGOS = listOf(
-        SSSPAlgo("BFS", Node::bfsSequential, Node::bfsParallel),
+//        SSSPAlgo("BFS", Node::bfsSequential, Node::bfsParallel)
         SSSPAlgo("Dijkstra", Node::dijkstraSequential, Node::dijkstraParallel)
 )
 class SSSPAlgo(val name: String, val sequential: (Node, Node) -> Long, val parallel: (Node, Node, Int) -> Long)
@@ -46,7 +49,7 @@ fun main() {
             val to = graphNodes[rand.nextInt(graphNodes.size - 1) + 1]
             val startTime = System.currentTimeMillis()
             val validResult = algo.sequential(from, to)
-            println("SEQ: ${System.currentTimeMillis() - startTime}ms")
+            println("# Sequential execution: ${System.currentTimeMillis() - startTime}ms")
             for (t in THREADS) {
                 // Warm-Up
                 repeat(WARMUP_ITERATIONS) {
@@ -177,11 +180,16 @@ fun parseTxtFile(filename: String, gziped: Boolean): List<Node> {
 
 // Returns the total time in nanoseconds
 fun run(graph: List<Node>, results: MutableList<Result>?, block: () -> Unit) {
+    System.gc(); System.gc(); System.gc()
+
+    var maxDistance = 0L
     graph.parallelStream().forEach { node ->
+        if (node.distance != Long.MAX_VALUE) maxDistance = max(maxDistance, node.distance)
         node.distance = Long.MAX_VALUE
         node.lastDistance = Long.MAX_VALUE
         node.changes = 0
     }
+    println("# Max distance: $maxDistance")
     val startTime = System.nanoTime()
     block()
     val totalTime = System.nanoTime() - startTime

@@ -79,8 +79,15 @@ class MultiQueue<T: PQElement<T>>(parallelism: Int) {
     fun poll(): T? {
         while (true) {
             if (nonEmptyHeaps == 0) return null
-            val i1 = ThreadLocalRandom.current().nextInt(totalQueues - 1)
-            val i2 = ThreadLocalRandom.current().nextInt(i1 + 1, totalQueues)
+            var i1: Int
+            var i2: Int
+            while (true) {
+                i1 = ThreadLocalRandom.current().nextInt(totalQueues)
+                i2 = ThreadLocalRandom.current().nextInt(totalQueues)
+                if (i1 == i2) continue
+                if (i1 > i2) { val t = i1; i1 = i2; i2 = t }
+                break
+            }
             val h1 = queues[i1]
             val h2 = queues[i2]
             synchronized(h1) { synchronized(h2) {
@@ -123,8 +130,8 @@ class MultiQueue<T: PQElement<T>>(parallelism: Int) {
 }
 
 private class Queue<T> {
-    private var data = arrayOfNulls<Any>(100000000)
-    private var times = LongArray(100000000)
+    private var data = arrayOfNulls<Any>(128)
+    private var times = LongArray(128)
     private var head = 0
     private var tail = 0
 
